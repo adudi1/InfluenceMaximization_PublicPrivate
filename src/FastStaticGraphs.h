@@ -20,5 +20,6 @@ THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 namespace DataStructures {
 	namespace Graphs {
 		typedef FastStaticGraph<uint32_t> FastUnweightedGraph;
+		typedef vector<FastUnweightedGraph> PrivateGraphs;
 	}
 }

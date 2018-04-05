@@ -347,24 +347,23 @@ protected:
 
 		// Compute vertex degrees.
 		if (verbose) cout << "Computing vertex degrees:" << endl;
+		
 		Tools::FancyProgressBar bar(inArcs.size(), "", verbose);
 		for (const auto &inArc : inArcs) {
 			VertexIdType fromVertexId(inArc.first), toVertexId(inArc.second);
 			Assert(fromVertexId >= 0 && fromVertexId < numVertices);
 			Assert(toVertexId >= 0 && toVertexId < numVertices);
-
 			// If the graph is undirected, the fromVertexId has to be smaller than toVertexId
 			Assert(isDirected || fromVertexId < toVertexId);
-
 			// Increase out-degree at source vertex.
 			vertices[fromVertexId].SetFirstArcId(vertices[fromVertexId].FirstArcId() + 1);
-
 			// If we build incoming arcs or the graph is undirected, also increase in-degree at target vertex.
 			if (buildIncomingArcs || !isDirected)
 				vertices[toVertexId].SetFirstArcId(vertices[toVertexId].FirstArcId() + 1);
 		}
-		bar.Finish();
 
+		bar.Finish();
+		
 		// Rewire pointers.
 		if (verbose) cout << "Wiring first arc id pointers:" << endl;
 		vector<arcIdType> firstFreeArcId(numVertices + 1, 0);
@@ -373,7 +372,7 @@ protected:
 		for (VertexIdType u = 0; u < numVertices; ++u) {
 			const arcIdType previousFirstArc = currentFirstArc;
 			currentFirstArc += vertices[u].FirstArcId();
-			cout<<vertices[u].FirstArcId()<<endl;
+			//cout<<vertices[u].FirstArcId()<<endl;
 			vertices[u].SetFirstArcId(previousFirstArc);
 			firstFreeArcId[u] = previousFirstArc;
 			++bar;
@@ -485,17 +484,13 @@ protected:
 			tie(fromVertexId, toVertexId) = stream.GetNextArc();
 			Assert(fromVertexId >= 0 && fromVertexId < numVertices);
 			Assert(toVertexId >= 0 && toVertexId < numVertices);
-
 			// If the graph is undirected, the fromVertexId has to be smaller than toVertexId
 			Assert(isDirected || fromVertexId < toVertexId);
-
 			// Increase out-degree at source vertex.
 			vertices[fromVertexId].SetFirstArcId(vertices[fromVertexId].FirstArcId() + 1);
-
 			// If we build incoming arcs or the graph is undirected, also increase in-degree at target vertex.
 			if (buildIncomingArcs || !isDirected)
 				vertices[toVertexId].SetFirstArcId(vertices[toVertexId].FirstArcId() + 1);
-
 			++numArcsRead;
 
 			// Read type.

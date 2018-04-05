@@ -32,7 +32,7 @@ namespace RawData {
 
 // Build a metis graph directly into a fast unweighted graph.
 template<typename graphType>
-void BuildMetisGraph(const string inFilename, graphType &outGraph, const bool ignoreSelfLoops, const bool transpose, const bool directed, const bool buildIncomingArcs, const bool removeParallelArcs, const bool verbose) {
+void BuildMetisGraph(const string inFilename, graphType &outGraph, vector<unordered_map<uint32_t, vector<uint32_t>>> &outPrivGraph, const bool ignoreSelfLoops, const bool transpose, const bool directed, const bool buildIncomingArcs, const bool removeParallelArcs, const bool verbose) {
 	typedef typename graphType::VertexIdType vertexIdType;
 	// Get the file size of the input filestream.
 	Types::SizeType fileSize = IO::FileSize(inFilename);
@@ -55,6 +55,7 @@ void BuildMetisGraph(const string inFilename, graphType &outGraph, const bool ig
 	vertexIdType fromVertexId = 0;
 	typedef pair<vertexIdType, vertexIdType> arcType;
 	vector<arcType> arcs;
+	uint32_t nver =0;
 
 	// Read line-by-line.
 	while (!inStream.Finished()) {
@@ -108,9 +109,82 @@ void BuildMetisGraph(const string inFilename, graphType &outGraph, const bool ig
 
 			// The tail vertices are actually consecutive and zero-based.
 			++fromVertexId;
+			++nver;
 		}
 	}
 	bar.Finish();
+
+	
+	outPrivGraph.resize(nver);
+
+	IO::FileStream inStream1;
+	inStream1.OpenForReading("private"+inFilename);
+
+	headerParsed = false;
+	uint32_t u=0;
+	lineNumber=0;
+	uint32_t fv =0;
+	uint32_t tv = 0;
+
+
+		while (!inStream1.Finished()) {
+		inStream1.ExtractLine(line);
+		++lineNumber;
+		// Skip lines that begin with a %-symbol.
+		if (line[0] == '%') continue;
+
+
+
+		// The header contains the number of vertices and arcs.
+		if (line[0] == '#') {
+			// Skip empty lines.
+			//if (line.empty()) continue;
+
+			
+			// Parse the header.
+			Tools::DynamicSplitInline(line, tokens, ' ');
+
+			// We need at least two tokens for the file format to be correct.
+			Assert(tokens.size() >= 1);
+			string tok(tokens[0]);
+
+			// The first token indicates the number of vertices.
+			//numVertices = Tools::LexicalCast<vertexIdType>(tokens[0]);
+			u = stol(tok.substr(1,tok.size()-1));
+			--u;
+			//cout<<"u: "<<u<<endl;
+
+		}
+		else {
+			if (!line.empty()) {
+				// Parse head vertices.
+				Tools::DynamicSplitInline(line, tokens, ' ');
+				if(tokens.empty()) continue;
+
+				fv = stol(tokens[0]);
+				--fv;
+				// Go over the tokens, and add an arc for each (that is non-empty).
+				for (size_t i = 1; i < tokens.size(); ++i) {
+					if (strlen(tokens[i]) == 0) continue;
+					//typename graphType::VertexIdType toVertexId = Tools::LexicalCast<typename graphType::VertexIdType>(tokens[i]);
+					tv = stol(tokens[i]);
+					--tv; // In the text file vertex ids are one-based.
+					//Assert(fromVertexId < numVertices);
+					//Assert(toVertexId < numVertices);
+					if (ignoreSelfLoops && fv == tv)
+						continue;
+					outPrivGraph[u][fv].push_back(tv);
+				}
+
+			}
+
+			// The tail vertices are actually consecutive and zero-based.
+			//++fromVertexId;
+		}
+	}
+
+
+
 
 	// Remove parallel arcs?
 	if (removeParallelArcs) {

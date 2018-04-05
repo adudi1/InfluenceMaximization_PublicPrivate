@@ -83,9 +83,11 @@ int main(int argc, char **argv) {
 	
 	// Load the graph.
 	DataStructures::Graphs::FastUnweightedGraph graph;
+	//vector<DataStructures::Graphs::FastUnweightedGraph> pgraphs;
+	vector<unordered_map<uint32_t, vector<uint32_t>>> pgraphs;
 
 	if (graphType == "metis")
-		RawData::BuildMetisGraph(graphFilename, graph, true, clp.IsSet("trans"), !clp.IsSet("undir"), true, clp.IsSet("nopar"), verbose);
+		RawData::BuildMetisGraph(graphFilename, graph, pgraphs, true, clp.IsSet("trans"), !clp.IsSet("undir"), true, clp.IsSet("nopar"), verbose);
 	else if (graphType == "dimacs")
 		RawData::BuildDimacsGraph(graphFilename, graph, true, clp.IsSet("trans"), !clp.IsSet("undir"), true, clp.IsSet("nopar"), verbose);
 	else if (graphType == "bin")
@@ -93,10 +95,11 @@ int main(int argc, char **argv) {
 	else
 		Usage(clp.ExecutableName());
 
-	const uint32_t N = clp.Value<uint32_t>("N", 0);
+	const uint32_t N = clp.Value<uint32_t>("N", 0);	
+
 
 	// Create the algorithm.
-	Algorithms::InfluenceMaximization::SKIM skim(graph, s, verbose);
+	Algorithms::InfluenceMaximization::SKIM skim(graph, pgraphs, l, s, verbose);
 
 	// Determine IC model and run algorithm.
 	if (modelStr == "binary")  {

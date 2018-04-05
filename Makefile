@@ -3,9 +3,9 @@ CXXFLAGS = -std=c++11 -O3 -fopenmp -DNDEBUG -m64
 BIN = ./bin
 SRC = ./src
 
-.phony: RunSKIM RunInfluenceOracle
+.phony: RunSKIM #RunInfluenceOracle
 
-all: RunSKIM RunInfluenceOracle
+all: RunSKIM #RunInfluenceOracle
 
 RunSKIM:
 	$(CXX) $(CXXFLAGS) -o $(BIN)/RunSKIM $(SRC)/RunSKIM.cpp

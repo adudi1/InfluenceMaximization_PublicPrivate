@@ -23,6 +23,8 @@ THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <random>
 #include <climits>
 #include <omp.h>
+#include <unordered_set>
+#include <list>
 using namespace std;
 
 #include "FastStaticGraphs.h"
@@ -43,6 +45,8 @@ public:
 	typedef DataStructures::Graphs::FastUnweightedGraph GraphType;
 	typedef GraphType::ArcIdType ArcIdType;
 	static const uint32_t NullVertex = UINT_MAX;
+	vector<vector<vector<uint32_t>>> fwp;
+	vector<vector<vector<uint32_t>>> bwp;
 
 	enum ModelType { WEIGHTED, BINARY, TRIVALENCY };
 
@@ -56,7 +60,7 @@ public:
 	};
 
 	// Default constructor.
-	SKIM(GraphType &g, const uint32_t s, const bool v) :
+	SKIM(GraphType &g,  vector<unordered_map<uint32_t, vector<uint32_t>>> &pgraphs, const uint16_t l, const uint32_t s, const bool v) :
 		verbose(v),
 		randomSeed(s),
 		graph(g),
@@ -74,6 +78,60 @@ public:
 			++indeg[arc->OtherVertexId()];
 		}
 		if (verbose) cout << "done." << endl;
+
+		//----------------------------
+
+		int n = pgraphs.size();
+		fwp.resize(l,vector<vector<uint32_t>>(n));
+		bwp.resize(l,vector<vector<uint32_t>>(n));
+
+		for(uint32_t i =0; i< l; i++){
+
+			for(uint32_t u =0; u <n; u++){
+				vector<uint32_t> visited(n, false);
+			 
+			    // Create a queue for BFS
+			    list<uint32_t> q;
+			 
+			    // Mark the current node as visited and enqueue it
+			    visited[u] = true;
+			    q.push_back(u);
+			 
+			    // 'i' will be used to get all adjacent
+			    // vertices of a vertex
+			    vector<uint32_t>::iterator it;
+			    uint32_t s =0;
+			 
+			    while(!q.empty())
+			    {
+			        // Dequeue a vertex from queue and print it
+			        s = q.front();
+			        //cout << s << " ";
+
+			        q.pop_front();
+			 
+			        // Get all adjacent vertices of the dequeued
+			        // vertex s. If a adjacent has not been visited, 
+			        // then mark it visited and enqueue it
+			        for (it = pgraphs[u][s].begin(); it != pgraphs[u][s].end(); ++it)
+			        {
+			            if (!visited[*it])
+			            {   
+			            	//cout<<"arcs: "<<u<<" "<<*it<<endl;
+			                if((Murmur3Hash(s, *it, i, l) % resolution) < binprob){
+			                	q.push_back(*it);
+			                	visited[*it] = true;
+			                	fwp[i][u].push_back(*it);
+			                	bwp[i][*it].push_back(u);
+			                	//cout<<"pe: "<<u<<" "<<*it<<endl;
+			                }
+			            }
+			        }
+			    }
+			}
+
+		}
+
 	}
 
 	// Set the binary probability.
@@ -94,12 +152,13 @@ public:
 		const uint64_t nl = graph.NumVertices()*l;
 		vector<SeedType> seedSet; // this will hold the seed vertices.
 		vector<uint32_t> permutation; // this is a permutation of the vertices to draw ranks from.
-		unordered_map< pair<uint32_t, uint16_t>, vector<uint32_t> > invSketches; // these are the "inverse sketches" (search spaces).
+		unordered_map< pair<uint32_t, uint16_t>, unordered_set<uint32_t> > invSketches; // these are the "inverse sketches" (search spaces).
 		vector<uint16_t> sketchSizes(graph.NumVertices(), 0); // these are the sizes of the real sketches.
 		vector<vector<bool>> covered(l); // this indicates whether a vertex/instance pair has been covered (influenced).
 		vector<vector<bool>> processed(l); // this indicates whether a vertex/instance pair has been processed (sketches built from it).
 		vector<DataStructures::Container::FastSet<uint32_t>> searchSpaces(numt); // this is for maintaining search spaces of BFSes; one per thread.
 		DataStructures::Container::FastSet<uint32_t> &S0 = searchSpaces[0];
+		DataStructures::Container::FastSet<uint32_t> S1(graph.NumVertices());
 		vector<vector<pair<uint32_t, uint16_t>>> updateQueues(numt);
 		vector<vector<uint32_t>> buck;
 		vector<uint32_t> buckind;
@@ -111,6 +170,9 @@ public:
 		double estinf(0), exinf(0), exinfloc(0), sketchms(0), infms(0);
 		bool runParallel(numt > 1), saturated(false);
 		uint32_t numperm(0), permthresh(l - (l / 10 + 1));
+
+		//vector<vector<uint32_t>> privRevEdges={{},{},{0},{},{1},{0,2,3}} ;//(graph.NumVertices());
+		//vector<vector<uint32_t>> Gu= {{2,5},{4},{5},{5},{},{}};
 
 		for (int32_t t = 0; t < numt; ++t)
 			searchSpaces[t].Resize(graph.NumVertices());
@@ -168,24 +230,31 @@ public:
 
 					++rank; // Increase value for rank.
 
+					
 					// Shortcut to some variables.
-					vector<bool> &cov = covered[i];
-					vector<uint32_t> &invSketch = invSketches[make_pair(sourceVertexId, i)];
-
+					vector<bool> &cov = covered[i]; // cover of instance
+					unordered_set<uint32_t> &invSketch = invSketches[make_pair(sourceVertexId, i)]; // inverted sketch of of node-instance pair
+					vector<vector<uint32_t>> &privRevEdges=bwp[i];//(graph.NumVertices());
+					vector<vector<uint32_t>> &Gu=fwp[i];
+					//vector<uint32_t> &invSketchPrivate = invSketchesPrivate[make_pair(sourceVertexId, i)];
 					// Only process such ranks that are not yet covered.
-					if (cov[sourceVertexId]) continue;
-
+					if (cov[sourceVertexId]) continue; // if node is already covered in that instance go to start of loop
 					// Perform the BFS.
 					S0.Clear();
-					S0.Insert(sourceVertexId);
+					S0.Insert(sourceVertexId); 
+					S1.Clear();
 					uint32_t ind = 0;
 					while (ind < S0.Size()) {
 						uint32_t u = S0.KeyByIndex(ind++);
-						++sketchSizes[u];
-						invSketch.push_back(u);
+						if(!S1.IsContained(u)){
+							++sketchSizes[u];
+							//invSketchPrivate.remove(u);
+						}
+						invSketch.insert(u);
+						//cout<<"revbfs: "<<sourceVertexId<<" "<<u<<" "<<sketchSizes[u]<<endl;
 
 						// pruning.
-						if (sketchSizes[u] == k) {
+						if (sketchSizes[u]== k) {
 							// Set the vertex and compute marginal influence.
 							newSeed.VertexId = u;
 							newSeed.EstimatedInfluence = static_cast<double>(k - 1) * static_cast<double>(graph.NumVertices()) / static_cast<double>(rank);
@@ -193,16 +262,47 @@ public:
 						}
 
 						// arc expansion.
+						//for (auto arc = G.GetLastArc(u), firstArc = G.GetFirstArc(u); arc >= firstArc; --arc)
 						FORALL_INCIDENT_ARCS_BACKWARD(graph, u, a) {
+							if (!a->Backward()) break;
+							const uint32_t v = a->OtherVertexId();
+							if (Contained<modelType>(v, u, i, l) && !cov[v] && !S0.IsContained(v)){
+							//if (ContainedRandom<modelType>(v, u) && !cov[v] && !S0.IsContained(v))
+								S0.Insert(v);
+							}
+						}
+						/*FORALL_INCIDENT_ARCS_BACKWARD(pgraphs, u, a) {
 							if (!a->Backward()) break;
 							const uint32_t v = a->OtherVertexId();
 							if (Contained<modelType>(v, u, i, l) && !cov[v] && !S0.IsContained(v))
 							//if (ContainedRandom<modelType>(v, u) && !cov[v] && !S0.IsContained(v))
 								S0.Insert(v);
+						}*/
+						for(auto up : privRevEdges[u]){
+							if(!cov[up] && !S0.IsContained(up) && !S1.IsContained(up)){
+								++sketchSizes[up];
+								invSketch.insert(up);
+								//invSketchPrivate.push_back(up);
+								S1.Insert(up);
+								//cout<<"prirevbfs: "<<sourceVertexId<<" "<<up<<" "<<sketchSizes[up]<<endl;
+
+								if (sketchSizes[up]== k) {
+									// Set the vertex and compute marginal influence.
+									newSeed.VertexId = up;
+									newSeed.EstimatedInfluence = static_cast<double>(k - 1) * static_cast<double>(graph.NumVertices()) / static_cast<double>(rank);
+									break;
+								}
+
+							}
 						}
+
+						if(newSeed.VertexId != NullVertex && sketchSizes[newSeed.VertexId] ==k)
+							break;
+
 					}
 					if (newSeed.VertexId != NullVertex)
 						break;
+					//cout<<"seed: "<<newSeed.VertexId<<endl;
 				} // end sketch building.
 				sketchms += timer.LiveElapsedMilliseconds();
 				newSeed.BuildSketchesElapsedMilliseconds = sketchms;
@@ -236,7 +336,9 @@ public:
 				// Select the next seed vertex as the one that has the highest number of things in the sketch.
 				if (verbose) cout << "[" << seedSet.size() + 1 << "] Determining the vertex that has highest marginal influence... " << flush;
 				Assert(!buck[buckp].empty());
+				//cout<<"buck: "<<buckp<<endl;
 				newSeed.VertexId = buck[buckp].back();
+				//cout<<"buck newvId: "<<newSeed.VertexId<<endl;
 				newSeed.EstimatedInfluence = double(sketchSizes[newSeed.VertexId]) / l;
 				newSeed.BuildSketchesElapsedMilliseconds = sketchms;
 				if (verbose) cout << " done (u: " << newSeed.VertexId << ", est: " << newSeed.EstimatedInfluence << ")" << endl;
@@ -247,7 +349,7 @@ public:
 			BFS computation on each instance to get the exact influence.
 			Also updates the sketch sizes.
 			*/
-			if (verbose) cout << "[" << seedSet.size() + 1 << "] Computing influence... " << flush;
+			if (verbose) cout << "[" << seedSet.size() + 1 << "] Computing influence... vertexId: "<< newSeed.VertexId<< flush;
 			timer.Start();
 
 			// Call sequential or parallel BFS to compute influences.
@@ -296,7 +398,7 @@ public:
 				for (int32_t t = 0; t < numt; ++t) {
 					vector<pair<uint32_t, uint16_t>> &Q = updateQueues[t];
 					for (const pair<uint32_t, uint16_t> &key : Q) {
-						const vector<uint32_t> &invSketch = invSketches[key];
+						const unordered_set<uint32_t> &invSketch = invSketches[key];
 						if (!saturated) {
 							for (const uint32_t &v : invSketch)
 								--sketchSizes[v];
@@ -326,8 +428,13 @@ public:
 
 					// Run a BFS.
 					S0.Clear();
-					if (!cov[newSeed.VertexId])
+					if (!cov[newSeed.VertexId]){
 						S0.Insert(newSeed.VertexId);
+						for(auto up : fwp[i][newSeed.VertexId]){
+							if (!cov[up])
+								S0.Insert(up);
+						}
+					}
 					uint32_t ind = 0;
 					while (ind < S0.Size()) {
 						uint32_t u = S0.KeyByIndex(ind++);
@@ -337,7 +444,7 @@ public:
 						// Update counters and sketches.
 						const pair<uint32_t, uint16_t> key(u, i);
 						if (invSketches.count(key)) {
-							const vector<uint32_t> &invSketch = invSketches[key];
+							const unordered_set<uint32_t> &invSketch = invSketches[key];
 							if (!saturated) {
 								for (const uint32_t &v : invSketch)
 									--sketchSizes[v];
@@ -383,7 +490,7 @@ public:
 
 		// Compute the exact influence? This is not measured in the running time.
 		if (lEval != 0)
-			exinf = ComputeExactInfluence<modelType>(seedSet, lEval);
+			exinf = ComputeExactInfluence<modelType>(seedSet, lEval,l);
 
 		/*
 		Print results.
@@ -464,7 +571,7 @@ protected:
 
 	// This evaluates the influence using a separate BFS with a separate seed.
 	template<ModelType modelType>
-	inline double ComputeExactInfluence(vector<SeedType> &seedSet, const uint16_t l) {
+	inline double ComputeExactInfluence(vector<SeedType> &seedSet, const uint16_t l,const uint16_t actl) {
 		// This essentially runs a bunch of BFSes in all l instances, one from each
 		// seed vertex. It then updates the exact influence value for the respective
 		// seed.
@@ -478,6 +585,7 @@ protected:
 		// For each seed vertex, perform a BFS in every instance, and count the sarch space sizes.
 		if (verbose) cout << "Running BFSes to compute exact influence in " << l << " instances and " << seedSet.size() << " vertices:" << flush;
 		double exinf(0);
+		cout<<endl;
 		for (SeedType &s : seedSet) {
 			uint64_t size = 0;
 			for (uint16_t i = 0; i < l; ++i) {
@@ -485,6 +593,11 @@ protected:
 				if (m[s.VertexId]) continue;
 				searchSpace.Clear();
 				searchSpace.Insert(s.VertexId);
+				for(auto up : fwp[i%(actl)][s.VertexId]){
+					if(!searchSpace.IsContained(up)){
+						searchSpace.Insert(up);
+					}
+				}
 				uint64_t cur = 0;
 				while (cur < searchSpace.Size()) {
 					const uint32_t u = searchSpace.KeyByIndex(cur++);
@@ -493,8 +606,14 @@ protected:
 					FORALL_INCIDENT_ARCS(graph, u, arc) {
 						if (!arc->Forward()) continue;
 						const uint32_t v = arc->OtherVertexId();
-						if (Contained<modelType>(u, v, i, l) && !m[v] && !searchSpace.IsContained(v))
+						if (Contained<modelType>(u, v, i, l) && !m[v] && !searchSpace.IsContained(v)){
 							searchSpace.Insert(v);
+							/*for(auto up : fwp[i%(actl)][v]){
+								if(!searchSpace.IsContained(v)){
+									searchSpace.Insert(up);
+								}
+							}*/
+						}
 					}
 				}
 			}
@@ -612,6 +731,7 @@ inline bool SKIM::Contained<SKIM::WEIGHTED>(const uint32_t u, const uint32_t v, 
 }
 template<>
 inline bool SKIM::Contained<SKIM::BINARY>(const uint32_t u, const uint32_t v, const uint16_t i, const uint16_t l) {
+	//return true;
 	return (Murmur3Hash(u, v, i, l) % resolution) < binprob;
 }
 template<>
